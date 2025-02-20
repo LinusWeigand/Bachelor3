@@ -291,8 +291,6 @@ async fn make_query(
     let bytes_read = Arc::new(AtomicUsize::new(0));
     let counting_file = CountingReader::new(file, bytes_read.clone());
 
-   
-    let name_to_index = get_column_name_to_index(&schema);
     // Row Group Filter
     let mut row_groups = row_groups;
     row_groups = row_groups
@@ -314,8 +312,6 @@ async fn make_query(
     );
     for maybe_batch in reader {
         let mut batch = maybe_batch?;
-        let mask = build_filter_mask(&batch, &expression, &name_to_index)?;
-        batch = arrow2::compute::filter::filter_chunk(&batch, &mask)?;
     }
 
     Ok((bytes_read, metadata_millis))
