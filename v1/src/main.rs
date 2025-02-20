@@ -279,27 +279,10 @@ async fn make_query(
 ) -> Result<(Arc<AtomicUsize>, f64), Box<dyn Error + Send + Sync>> {
     // Query
     let expression = parse_expression(&format!("memoryUsed > {}", workload))?;
-    let aggregation_str = vec![
-        "SUM(Age)",
-        "AVG(Age)",
-        "MIN(Age)",
-        "MAX(Age)",
-        "COUNT(Age)",
-        "SUM(Float)",
-        "AVG(Float)",
-        "MIN(Float)",
-        "MAX(Float)",
-        "COUNT(Float)",
-    ];
-    let mut aggregations = Vec::new();
-    for a in aggregation_str {
-        let aggregation = parse_aggregation(a)?;
-        aggregations.push(aggregation);
-    }
 
     let start_time = Instant::now();
     let metadata = parse_raw_footer(&raw_footer.raw_bytes, raw_footer.footer_size)?;
-    let mut schema = infer_schema(&metadata)?;
+    let schema = infer_schema(&metadata)?;
     let row_groups = metadata.row_groups;
     let metadata_millis: f64 = start_time.elapsed().as_millis() as f64;
     let path = raw_footer.path;
@@ -320,29 +303,6 @@ async fn make_query(
         })
         .collect();
 
-    // Aggregation
-    let mut aggregators = Vec::new();
-    for aggregation in aggregations {
-        let column_name = aggregation.column_name.clone();
-        let aggregation_op = aggregation.aggregation_op.clone();
-
-        let column = match schema.fields.iter().find(|field| field.name == column_name) {
-            Some(v) => v,
-            None => continue,
-        };
-
-        let column_index = match name_to_index.get(&column_name) {
-            Some(v) => *v,
-            None => continue,
-        };
-        let data_type = column.data_type();
-        aggregators.push(build_aggregator(
-            column_index,
-            column_name,
-            aggregation_op,
-            data_type,
-        ));
-    }
 
     let reader = FileReader::new(
         counting_file,
@@ -356,8 +316,6 @@ async fn make_query(
         let mut batch = maybe_batch?;
         let mask = build_filter_mask(&batch, &expression, &name_to_index)?;
         batch = arrow2::compute::filter::filter_chunk(&batch, &mask)?;
-
-        aggregate_batch(&mut aggregators, &batch)?;
     }
 
     Ok((bytes_read, metadata_millis))
