@@ -197,7 +197,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                 if let Some(v) = iter.next() {
                     workload = match v.as_str() {
                         "worst" => 0,
-                        "best-case" => 404147624160,
+                        "best-case" => 73046839008,
                         "real" => 97525233984,
                         "25" => 26412250272,
                         "50" => 16685759632,
