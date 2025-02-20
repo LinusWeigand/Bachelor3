@@ -228,6 +228,10 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     }
 
     count += 1;
+    let columns: Vec<String> = COLUMNS[..column_count]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
     let file_paths: Vec<_> = (1..count)
         .map(|i| PathBuf::from(format!("{}/merged_{:02}.parquet", folder, i)))
         .collect();
@@ -245,8 +249,9 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 
     for raw_footer in raw_footers {
         let read_size = read_size;
+        let columns = columns.clone();
         let task = tokio::task::spawn(async move {
-            let (bytes_read, millis) = make_query(raw_footer, read_size, workload).await?;
+            let (bytes_read, millis) = make_query(raw_footer, read_size, workload, columns).await?;
             Ok::<(Arc<AtomicUsize>, f64), Box<dyn Error + Send + Sync>>((bytes_read, millis))
         });
         tasks.push(task);
@@ -285,6 +290,7 @@ async fn make_query(
     raw_footer: RawFooter,
     read_size: usize,
     workload: usize,
+    columns: Vec<String>,
 ) -> Result<(Arc<AtomicUsize>, f64), Box<dyn Error + Send + Sync>> {
     // Query
     let expression = parse_expression(&format!("memoryUsed > {}", workload))?;
@@ -306,8 +312,6 @@ async fn make_query(
         aggregations.push(aggregation);
     }
 
-    let select_columns = vec!["memoryUsed".to_owned()];
-
     let start_time = Instant::now();
     let metadata = parse_raw_footer(&raw_footer.raw_bytes, raw_footer.footer_size)?;
     let mut schema = infer_schema(&metadata)?;
@@ -320,7 +324,7 @@ async fn make_query(
     let counting_file = CountingReader::new(file, bytes_read.clone());
 
     // Early Projection
-    let mut early_select = select_columns.clone();
+    let mut early_select = columns.clone();
     let filter_col_names = get_column_projection_from_expression(&expression);
     for col_name in filter_col_names {
         if !early_select.contains(&col_name) {
@@ -333,9 +337,7 @@ async fn make_query(
             early_select.push(col_name);
         }
     }
-    let num_fields_before = &schema.fields.len();
     schema = schema.filter(|_, field| early_select.contains(&field.name));
-    let num_fields_after = &schema.fields.len();
     let name_to_index = get_column_name_to_index(&schema);
     // Row Group Filter
     let mut row_groups = row_groups;
@@ -387,12 +389,12 @@ async fn make_query(
         aggregate_batch(&mut aggregators, &batch)?;
 
         // Late Projection
-        if select_columns.len() < schema.fields.len() {
+        if columns.len() < schema.fields.len() {
             let selected_indices: Vec<usize> = schema
                 .fields
                 .iter()
                 .enumerate()
-                .filter_map(|(i, field)| match select_columns.contains(&field.name) {
+                .filter_map(|(i, field)| match columns.contains(&field.name) {
                     false => None,
                     true => Some(i),
                 })
