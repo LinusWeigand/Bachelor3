@@ -11,22 +11,38 @@ futures = "0.3.31"
 async-channel = "1.9.0"
 bytes = "1.10.0"
 futures-util = "0.3.31"
-reqwest = { version = "0.12.12", features = ["stream"] }
+reqwest = { version = "0.12.12", default-features = false, features = ["stream"] }
+hyper = { version = "0.14", features = ["full"] }
+libc = "0.2.169"
 # hyper = "1.5.1"
 # hyper = { version = "1.6", features = ["full"] }
-hyper = { version = "0.14", features = ["full"] }
 # reqwest = { version = "0.12.12", default-features = false}
 # actix-web = "4.9.0"
 # serde = { version = "1.0.217", features = ["derive"] }
-# libc = "0.2.169"
 
 [[bin]]
-name = "network"
-path = "src/network.rs"
+name = "network-tcp"
+path = "src/tcp/network.rs"
 
 [[bin]]
-name = "client"
-path = "src/client.rs"
+name = "network-http"
+path = "src/http/network.rs"
+
+[[bin]]
+name = "network-disk-tcp"
+path = "src/tcp/network_disk.rs"
+
+[[bin]]
+name = "network-disk-http"
+path = "src/http/network_disk.rs"
+
+[[bin]]
+name = "client-tcp"
+path = "src/tcp/client.rs"
+
+[[bin]]
+name = "client-http"
+path = "src/http/client.rs"
 
 [[bin]]
 name = "disk-write"
@@ -40,16 +56,3 @@ path = "src/disk/write/channel.rs"
 name = "disk-read"
 path = "src/disk/read/normal.rs"
 
-
-# [[bin]]
-# name = "network_disk"
-# path = "src/network_disk.rs"
-
-
-[[bin]]
-name = "http-server"
-path = "src/http/server.rs"
-
-[[bin]]
-name = "http-client"
-path = "src/http/client.rs"

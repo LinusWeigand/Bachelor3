@@ -1,19 +1,10 @@
-use async_channel;
 use hyper::body::HttpBody;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
 use std::convert::Infallible;
 use std::path::Path;
-use tokio::fs::OpenOptions;
-use tokio::io::{AsyncSeekExt, AsyncWriteExt, SeekFrom};
 
 const FOLDER: &str = "/mnt/raid0";
-const NUM_WRITE_TASKS: usize = 16;
-
-struct DataChunk {
-    offset: u64,
-    data: Vec<u8>,
-}
 
 #[tokio::main]
 async fn main() {
@@ -68,51 +59,15 @@ async fn handle_request(req: Request<Body>) -> Result<Response<Body>, Infallible
 
     let file_path = Path::new(FOLDER).join(&file_name);
 
-    let (tx, rx) = async_channel::bounded::<DataChunk>(1024);
-
-    for _ in 0..NUM_WRITE_TASKS {
-        let rx = rx.clone();
-        let file_path = file_path.clone();
-
-        tokio::spawn(async move {
-            let mut file = OpenOptions::new()
-                .write(true)
-                .create(true)
-                .open(&file_path)
-                .await
-                .expect("Failed to open file");
-
-            while let Ok(data_chunk) = rx.recv().await {
-                // Seek to the offset
-                if let Err(e) = file.seek(SeekFrom::Start(data_chunk.offset)).await {
-                    eprintln!("Failed to seek in file: {}", e);
-                    continue;
-                }
-
-                if let Err(e) = file.write_all(&data_chunk.data).await {
-                    eprintln!("Failed to write to file: {}", e);
-                }
-            }
-        });
-    }
-
     let mut body = req.into_body();
-    let mut offset = 0u64;
+
+    let mut bytes_received = 0;
 
     while let Some(chunk_result) = body.data().await {
         match chunk_result {
             Ok(chunk) => {
                 let data_len = chunk.len();
-                let data_chunk = DataChunk {
-                    offset,
-                    data: chunk.to_vec(),
-                };
-                offset += data_len as u64;
-
-                if tx.send(data_chunk).await.is_err() {
-                    eprintln!("Failed to send data to writer task.");
-                    break;
-                }
+                bytes_received += data_len;
             }
             Err(e) => {
                 eprintln!("Error while reading body: {}", e);
@@ -124,8 +79,7 @@ async fn handle_request(req: Request<Body>) -> Result<Response<Body>, Infallible
         }
     }
 
-    drop(tx);
-
+    println!("Total bytes received: {}", bytes_received);
     println!(
         "File {} received successfully and saved to {:?}",
         file_name, file_path
