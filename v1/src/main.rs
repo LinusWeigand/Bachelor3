@@ -164,7 +164,6 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let mut read_size: usize = 4 * 1024 * 1024;
     let mut count: usize = 16;
     let mut workload: usize = 0;
-    let mut column_count: usize = 0;
 
     while let Some(arg) = iter.next() {
         match arg.as_str() {
@@ -212,14 +211,6 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                     exit(1);
                 }
             }
-            "-cc" | "--columns" => {
-                if let Some(v) = iter.next() {
-                    column_count = v.parse().unwrap();
-                } else {
-                    eprintln!("Error: -cc/--columns requires an argument.");
-                    exit(1);
-                }
-            }
             _ => {
                 eprintln!("Unknown argument: {}", arg);
                 exit(1);
@@ -228,10 +219,6 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     }
 
     count += 1;
-    let columns: Vec<String> = COLUMNS[..column_count]
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
     let file_paths: Vec<_> = (1..count)
         .map(|i| PathBuf::from(format!("{}/merged_{:02}.parquet", folder, i)))
         .collect();
@@ -249,9 +236,8 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 
     for raw_footer in raw_footers {
         let read_size = read_size;
-        let columns = columns.clone();
         let task = tokio::task::spawn(async move {
-            let (bytes_read, millis) = make_query(raw_footer, read_size, workload, columns).await?;
+            let (bytes_read, millis) = make_query(raw_footer, read_size, workload).await?;
             Ok::<(Arc<AtomicUsize>, f64), Box<dyn Error + Send + Sync>>((bytes_read, millis))
         });
         tasks.push(task);
@@ -290,7 +276,6 @@ async fn make_query(
     raw_footer: RawFooter,
     read_size: usize,
     workload: usize,
-    columns: Vec<String>,
 ) -> Result<(Arc<AtomicUsize>, f64), Box<dyn Error + Send + Sync>> {
     // Query
     let expression = parse_expression(&format!("memoryUsed > {}", workload))?;
@@ -323,21 +308,7 @@ async fn make_query(
     let bytes_read = Arc::new(AtomicUsize::new(0));
     let counting_file = CountingReader::new(file, bytes_read.clone());
 
-    // Early Projection
-    let mut early_select = columns.clone();
-    let filter_col_names = get_column_projection_from_expression(&expression);
-    for col_name in filter_col_names {
-        if !early_select.contains(&col_name) {
-            early_select.push(col_name);
-        }
-    }
-    let aggr_col_names = get_column_projection_from_aggregations(&aggregations);
-    for col_name in aggr_col_names {
-        if !early_select.contains(&col_name) {
-            early_select.push(col_name);
-        }
-    }
-    schema = schema.filter(|_, field| early_select.contains(&field.name));
+   
     let name_to_index = get_column_name_to_index(&schema);
     // Row Group Filter
     let mut row_groups = row_groups;
@@ -387,20 +358,6 @@ async fn make_query(
         batch = arrow2::compute::filter::filter_chunk(&batch, &mask)?;
 
         aggregate_batch(&mut aggregators, &batch)?;
-
-        // Late Projection
-        if columns.len() < schema.fields.len() {
-            let selected_indices: Vec<usize> = schema
-                .fields
-                .iter()
-                .enumerate()
-                .filter_map(|(i, field)| match columns.contains(&field.name) {
-                    false => None,
-                    true => Some(i),
-                })
-                .collect();
-            batch = filter_columns(&batch, &selected_indices);
-        }
     }
 
     Ok((bytes_read, metadata_millis))
