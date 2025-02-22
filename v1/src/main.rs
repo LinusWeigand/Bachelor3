@@ -163,7 +163,6 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     let mut folder = "./merged";
     let mut read_size: usize = 4 * 1024 * 1024;
     let mut count: usize = 16;
-    let mut workload: usize = 0;
 
     while let Some(arg) = iter.next() {
         match arg.as_str() {
@@ -189,25 +188,6 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
                     count = v.parse().unwrap();
                 } else {
                     eprintln!("Error: -c/--count requires an argument.");
-                    exit(1);
-                }
-            }
-            "-w" | "--workload" => {
-                if let Some(v) = iter.next() {
-                    workload = match v.as_str() {
-                        "worst" => 0,
-                        "best-case" => 73046839008,
-                        "real" => 97525233984,
-                        "25" => 26412250272,
-                        "50" => 16685759632,
-                        "75" => 8503952416,
-                        _ => {
-                            eprintln!("Error: Invalid argument for -w/--workload.");
-                            exit(1);
-                        }
-                    }
-                } else {
-                    eprintln!("Error: -w/--workload requires an argument.");
                     exit(1);
                 }
             }
@@ -237,7 +217,7 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
     for raw_footer in raw_footers {
         let read_size = read_size;
         let task = tokio::task::spawn(async move {
-            let (bytes_read, millis) = make_query(raw_footer, read_size, workload).await?;
+            let (bytes_read, millis) = make_query(raw_footer, read_size).await?;
             Ok::<(Arc<AtomicUsize>, f64), Box<dyn Error + Send + Sync>>((bytes_read, millis))
         });
         tasks.push(task);
@@ -275,11 +255,8 @@ async fn main() -> Result<(), Box<dyn Error + Send + Sync>> {
 async fn make_query(
     raw_footer: RawFooter,
     read_size: usize,
-    workload: usize,
 ) -> Result<(Arc<AtomicUsize>, f64), Box<dyn Error + Send + Sync>> {
     // Query
-    let expression = parse_expression(&format!("memoryUsed > {}", workload))?;
-
     let start_time = Instant::now();
     let metadata = parse_raw_footer(&raw_footer.raw_bytes, raw_footer.footer_size)?;
     let schema = infer_schema(&metadata)?;
@@ -292,16 +269,6 @@ async fn make_query(
     let counting_file = CountingReader::new(file, bytes_read.clone());
 
     // Row Group Filter
-    let mut row_groups = row_groups;
-    row_groups = row_groups
-        .into_iter()
-        .filter_map(|md| match keep_row_group(&md, &expression, false) {
-            Ok(false) => None,
-            Ok(true) | _ => Some(md),
-        })
-        .collect();
-
-
     let reader = FileReader::new(
         counting_file,
         row_groups,
@@ -311,7 +278,7 @@ async fn make_query(
         None,
     );
     for maybe_batch in reader {
-        let mut batch = maybe_batch?;
+        let batch = maybe_batch?;
     }
 
     Ok((bytes_read, metadata_millis))
