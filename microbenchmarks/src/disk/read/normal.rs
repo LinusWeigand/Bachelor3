@@ -10,9 +10,9 @@ const FILE_PATH: &str = "/mnt/raid0/testfile";
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 struct Args {
-    #[arg(short, long, default_value = "1024")]
+    #[arg(short, long, default_value = "512")]
     size: u64,
-    #[arg(short, long, default_value = "4")]
+    #[arg(short, long, default_value = "1")]
     read: u64,
     #[arg(short, long, default_value = "50")]
     duration: u64,
